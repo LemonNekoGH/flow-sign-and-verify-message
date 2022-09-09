@@ -69,6 +69,7 @@ onMounted(() => {
 const sign = async (): Promise<any> => {
   // message must be a hex string
   const msg = Buffer.from("Welcome to LemonNeko's blog. " + Date.now()).toString("hex");
+  // const msg = Buffer.from("Welcome to LemonNeko's blog. 1662696806339").toString("hex");
   console.log(msg)
   const signedMsg = await fcl.currentUser.signUserMessage(msg);
   console.log(signedMsg)

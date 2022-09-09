@@ -18,10 +18,9 @@ import (
 )
 
 var (
-	ctx             context.Context
-	flowCli         *flowGrpc.Client
-	messageToVerify = []byte("Welcome to LemonNeko's blog.")
-	jwtSecret       = []byte("S E C R E T")
+	ctx       context.Context
+	flowCli   *flowGrpc.Client
+	jwtSecret = []byte("S E C R E T")
 )
 
 type FlowInfo struct {
@@ -47,7 +46,7 @@ func (b LoginRequest) IsValid() bool {
 // 初始化 Flow 客户端
 func initFlow() {
 	var err error
-	flowCli, err = flowGrpc.NewClient(flowGrpc.TestnetHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	flowCli, err = flowGrpc.NewClient(flowGrpc.EmulatorHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
 	}
@@ -83,13 +82,8 @@ func verifySignature(message, address, signature string) bool {
 		fmt.Printf("get account error, err: %s\n", err.Error())
 		return false
 	}
-	// decode message
-	decodedMessage, err := hex.DecodeString(message)
-	if err != nil {
-		fmt.Printf("signature decode error, err: %s\n", err.Error())
-		return false
-	}
-	fmt.Printf("message: %s\n", decodedMessage)
+	// should not decode message string, should use hex message string.
+	fmt.Printf("message: %s, sig: %s\n", message, signature)
 	// decode signature, reference: https://github.com/onflow/flow-cli/blob/master/internal/signatures/verify.go#L64
 	decodedSignature, err := hex.DecodeString(signature)
 	if err != nil {
@@ -102,7 +96,7 @@ func verifySignature(message, address, signature string) bool {
 		if key.Revoked {
 			continue
 		}
-		ok, err := key.PublicKey.Verify(decodedSignature, decodedMessage, getHasher(key.HashAlgo))
+		ok, err := key.PublicKey.Verify(decodedSignature, []byte(message), getHasher(key.HashAlgo))
 		if err != nil {
 			fmt.Printf("verify failed, err: %s\n", err.Error())
 			continue
@@ -110,7 +104,7 @@ func verifySignature(message, address, signature string) bool {
 		if ok {
 			return ok
 		}
-		fmt.Printf("verify failed. key index: %d\n", key.Index)
+		fmt.Printf("verify failed. key index: %d, key: %s\n", key.Index, key.PublicKey.String())
 	}
 	return false
 }
