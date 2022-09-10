@@ -12,6 +12,9 @@ import HelloWorld from './components/HelloWorld.vue'
     <a href="https://vuejs.org/" target="_blank">
       <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
     </a>
+    <a href="https://flow.com/" target="_blank">
+      <img src="./assets/flow.svg" class="logo flow" alt="Vue logo" />
+    </a>
   </div>
   <HelloWorld msg="Vite + Vue + FCL" />
 </template>
@@ -27,5 +30,8 @@ import HelloWorld from './components/HelloWorld.vue'
 }
 .logo.vue:hover {
   filter: drop-shadow(0 0 2em #42b883aa);
+}
+.logo.flow:hover {
+  filter: drop-shadow(0 0 2em #00ef8bff);
 }
 </style>
