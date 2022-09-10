@@ -2,7 +2,7 @@
 一个用 `fcl` 在前端给消息进行签名，并发送给后端以取得 [`jwt`](https://jwt.io/) 的示例，将来有可能扩展到其它区块链的应用中。为了快速看到 `jwt` 过期后的效果，只设置了两分钟过期时间。
 
 ## 大致流程图
-![flow](http://processon.com/chart_image/63182730f346fb55d8a48078.png)
+![flow](./flowchart.png)
 
 ## 运行本示例的前置需求
 1. [`flow-cli`](https://developers.flow.com/tools/flow-cli) 用于启动 [`Flow`](https://flow.com/) 区块链模拟器，和 [`dev-wallet`](https://github.com/onflow/fcl-dev-wallet)
