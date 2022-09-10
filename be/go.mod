@@ -25,6 +25,7 @@ require (
 )
 
 require (
+	github.com/LemonNekoGH/godence v1.0.0
 	github.com/bits-and-blooms/bitset v1.2.2 // indirect
 	github.com/btcsuite/btcd v0.20.1-beta // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -43,7 +44,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.2.1-0.20211004051800-57c86be7915a // indirect
-	github.com/stretchr/testify v1.7.5 // indirect
+	github.com/stretchr/testify v1.8.0 // indirect
 	github.com/turbolent/prettier v0.0.0-20220320183459-661cc755135d // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/zeebo/blake3 v0.2.3 // indirect

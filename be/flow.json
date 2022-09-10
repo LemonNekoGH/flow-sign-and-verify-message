@@ -1,5 +1,7 @@
 {
-	"contracts": {},
+	"contracts": {
+		"FCLCrypto": "./cadence/FCLCrypto.cdc"
+	},
 	"networks": {
 		"emulator": "127.0.0.1:3569",
 		"mainnet": "access.mainnet.nodes.onflow.org:9000",
@@ -11,5 +13,9 @@
 			"key": "030ad9fe06e584cdc8afe744c0012d0397a0805e133a5dacdf83b94a996a6972"
 		}
 	},
-	"deployments": {}
+	"deployments": {
+		"emulator": {
+			"emulator-account": ["FCLCrypto"]
+		}
+	}
 }

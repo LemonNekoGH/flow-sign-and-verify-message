@@ -2,15 +2,15 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/LemonNekoGH/godence"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/onflow/flow-go-sdk"
+	"github.com/onflow/cadence"
 	flowGrpc "github.com/onflow/flow-go-sdk/access/grpc"
 	"github.com/onflow/flow-go/crypto/hash"
 	"google.golang.org/grpc"
@@ -34,13 +34,14 @@ type TokenClaims struct {
 
 // LoginRequest
 type LoginRequest struct {
-	Address   string `form:"address"`
-	Signature string `form:"signature"`
-	Message   string `form:"message"`
+	Address    string   `form:"address"`
+	Signatures []string `form:"signatures"`
+	KeyIndices []int    `form:"keyIndices"`
+	Message    string   `form:"message"`
 }
 
 func (b LoginRequest) IsValid() bool {
-	return strings.TrimSpace(b.Address) != "" && strings.TrimSpace(b.Signature) != ""
+	return strings.TrimSpace(b.Address) != "" && len(b.Signatures) != 0 && len(b.KeyIndices) != 0 && strings.TrimSpace(b.Message) != ""
 }
 
 // 初始化 Flow 客户端
@@ -75,38 +76,82 @@ func getHasher(algo hash.HashingAlgorithm) hash.Hasher {
 }
 
 // require user address, and signature
-func verifySignature(message, address, signature string) bool {
+func verifySignature(signature []string, keys []int, message, tag, address string) (bool, error) {
+	const script = `
+pub fun main(
+	address: Address,
+	message: String,
+	keyIndices: [Int],
+	signatures: [String],
+	domainSeparationTag: String,
+): Bool {
+	pre {
+		keyIndices.length == signatures.length : "Key index list length does not match signature list length"
+	}
+
+	let account = getAccount(address)
+	let messageBytes = message.decodeHex()
+
+	var totalWeight: UFix64 = 0.0
+	let seenKeyIndices: {Int: Bool} = {}
+
+	var i = 0
+
+	for keyIndex in keyIndices {
+
+		let accountKey = account.keys.get(keyIndex: keyIndex) ?? panic("Key provided does not exist on account")
+		let signature = signatures[i].decodeHex()
+
+		// Ensure this key index has not already been seen
+
+		if seenKeyIndices[accountKey.keyIndex] ?? false {
+			return false
+		}
+
+		// Record the key index was seen
+
+		seenKeyIndices[accountKey.keyIndex] = true
+
+		// Ensure the key is not revoked
+
+		if accountKey.isRevoked {
+			return false
+		}
+
+		// Ensure the signature is valid
+
+		if !accountKey.publicKey.verify(
+			signature: signature,
+			signedData: messageBytes,
+			domainSeparationTag: domainSeparationTag,
+			hashAlgorithm: accountKey.hashAlgorithm
+		) {
+			return false
+		}
+
+		totalWeight = totalWeight + accountKey.weight
+
+		i = i + 1
+	}
+	
+	return totalWeight >= 1000.0
+}`
+	cdcTag, _ := godence.ToCadence(tag)
+	cdcMsg, _ := godence.ToCadence(message)
+	cdcSig, _ := godence.ToCadence(signature)
+	cdcKeys, _ := godence.ToCadence(keys)
+	cdcAddr, _ := godence.ToCadence(godence.Address(address))
 	// get account
-	account, err := flowCli.GetAccount(ctx, flow.HexToAddress(address))
+	result, err := flowCli.ExecuteScriptAtLatestBlock(ctx, []byte(script), []cadence.Value{
+		cdcAddr, cdcMsg, cdcKeys, cdcSig, cdcTag,
+	})
 	if err != nil {
-		fmt.Printf("get account error, err: %s\n", err.Error())
-		return false
+		return false, err
 	}
-	// should not decode message string, should use hex message string.
-	fmt.Printf("message: %s, sig: %s\n", message, signature)
-	// decode signature, reference: https://github.com/onflow/flow-cli/blob/master/internal/signatures/verify.go#L64
-	decodedSignature, err := hex.DecodeString(signature)
-	if err != nil {
-		fmt.Printf("signature decode error, err: %s\n", err.Error())
-		return false
-	}
-	// try verify
-	for _, key := range account.Keys {
-		// revoked key cannot use to send transaction
-		if key.Revoked {
-			continue
-		}
-		ok, err := key.PublicKey.Verify(decodedSignature, []byte(message), getHasher(key.HashAlgo))
-		if err != nil {
-			fmt.Printf("verify failed, err: %s\n", err.Error())
-			continue
-		}
-		if ok {
-			return ok
-		}
-		fmt.Printf("verify failed. key index: %d, key: %s\n", key.Index, key.PublicKey.String())
-	}
-	return false
+	r := false
+	_ = godence.ToGo(result, &r)
+
+	return r, nil
 }
 
 func postLogin(ctx *gin.Context) {
@@ -119,7 +164,15 @@ func postLogin(ctx *gin.Context) {
 		})
 		return
 	}
-	if !verifySignature(reqBody.Message, reqBody.Address, reqBody.Signature) {
+	ok, err := verifySignature(reqBody.Signatures, reqBody.KeyIndices, reqBody.Message, "FLOW-V0.0-user", reqBody.Address)
+	if err != nil {
+		ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"code":    50001, // flow cli failed
+			"message": "signature verify failed, please try again later",
+		})
+		return
+	}
+	if !ok {
 		ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 			"code":    40002, // signature verify failed
 			"message": "signature verify failed",
@@ -154,8 +207,10 @@ func requireLogin(ctx *gin.Context) {
 	// get token from http header
 	tokenHeader := ctx.GetHeader("Authorization")
 	token := strings.Fields(tokenHeader)[1]
+
+	claims := &TokenClaims{}
 	// verify token
-	parsedToken, err := jwt.ParseWithClaims(token, TokenClaims{}, func(t *jwt.Token) (interface{}, error) {
+	parsedToken, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected token signing method")
 		}
@@ -164,7 +219,7 @@ func requireLogin(ctx *gin.Context) {
 	if err != nil {
 		ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"code":    40101, // parse error
-			"message": "claims type error",
+			"message": "claims type error: " + err.Error(),
 		})
 		return
 	}
@@ -182,14 +237,6 @@ func requireLogin(ctx *gin.Context) {
 		}
 	}
 
-	// get payload
-	claims, ok := parsedToken.Claims.(TokenClaims)
-	if !ok {
-		ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"code":    40101, // typecheck error
-			"message": "unexpect type of claims",
-		})
-	}
 	// set to context
 	ctx.Set("FLOW_USER", claims.Info)
 
@@ -222,7 +269,7 @@ func getProfile(ctx *gin.Context) {
 
 func allowAllOrigin(ctx *gin.Context) {
 	ctx.Header("Access-Control-Allow-Origin", ctx.Request.Header.Get("Origin"))
-	ctx.Header("Access-Control-Allow-Headers", "content-type")
+	ctx.Header("Access-Control-Allow-Headers", "content-type, authorization")
 	if ctx.Request.Method == http.MethodOptions {
 		ctx.Status(http.StatusOK)
 		return

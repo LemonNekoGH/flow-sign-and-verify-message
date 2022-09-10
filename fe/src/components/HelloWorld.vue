@@ -8,6 +8,7 @@ defineProps<{ msg: string }>();
 
 const count = ref(0);
 const currentUser = ref<any>();
+const currentAccount = ref<any>()
 // getUserInfo
 const getUserInfo = async (token: string) => {
   try {
@@ -17,7 +18,7 @@ const getUserInfo = async (token: string) => {
         Authorization: `Bearer ${token}`,
       },
     });
-    if (resp.data.address === currentUser.value.addr) {
+    if (resp.data.data.address === currentUser.value.addr) {
       // token is valid
       return resp.data;
     }
@@ -26,6 +27,15 @@ const getUserInfo = async (token: string) => {
     return null;
   }
 };
+// try to get info
+const getInfo = async () => {
+  const token = localStorage.getItem("accessToken")
+  const info = await getUserInfo(token!)
+  console.log('get user info', info)
+  if (!info) {
+    fcl.unauthenticate()
+  }
+}
 const setUser = async (u: any) => {
   currentUser.value = u;
   // check local storage
@@ -40,22 +50,36 @@ const setUser = async (u: any) => {
   console.log('no token or token is invalid.')
   // token is invalid, should request to sign a message
   const signature = await sign();
-  console.log('get signature: ' + signature)
-  if (!signature[1]) {
+  console.log('get signature: ', signature)
+  if (!Array.isArray(signature.sig)) {
     // user rejected
     fcl.unauthenticate();
     console.log("wallet connect failed...");
     return;
   }
   console.log('signed a message.')
+  // try to verify
+  // @ts-expect-error
+  console.log('verify at frontend: ', await fcl.AppUtils.verifyUserSignatures(signature.msg, signature.sig, {
+    fclCryptoContract: '0xf8d6e0586b0a20c7'
+  }))
   // get a token
   try {
+    // get keys and sigs
+    const keys: number[] = []
+    const sigs: string[] = []
+    for (const sig of signature.sig) {
+      keys.push(sig.keyId)
+      sigs.push(sig.signature)
+    }
+    // request a token
     const resp = await axios.post("http://localhost:3336/login", {
       address: currentUser.value.addr,
-      message: signature[0],
-      signature: signature[1],
+      message: signature.msg,
+      signatures: sigs,
+      keyIndices: keys,
     });
-    localStorage.setItem('accessToken', resp.data)
+    localStorage.setItem('accessToken', resp.data.data)
   } catch (e) {
     // get token failed
     fcl.unauthenticate();
@@ -69,11 +93,11 @@ onMounted(() => {
 const sign = async (): Promise<any> => {
   // message must be a hex string
   const msg = Buffer.from("Welcome to LemonNeko's blog. " + Date.now()).toString("hex");
-  // const msg = Buffer.from("Welcome to LemonNeko's blog. 1662696806339").toString("hex");
-  console.log(msg)
-  const signedMsg = await fcl.currentUser.signUserMessage(msg);
-  console.log(signedMsg)
-  return [msg, signedMsg[0]?.signature];
+  const sig = await fcl.currentUser.signUserMessage(msg);
+  return {
+    msg,
+    sig
+  };
 };
 </script>
 
@@ -86,7 +110,7 @@ const sign = async (): Promise<any> => {
       Logout
     </button>
     <button v-else type="button" @click="fcl.logIn">Login</button>
-    <button v-if="currentUser?.addr" type="button" @click="sign">Sign a message</button>
+    <button v-if="currentUser?.addr" type="button" @click="getInfo">Get profile</button>
     <p>
       Edit
       <code>components/HelloWorld.vue</code> to test HMR
